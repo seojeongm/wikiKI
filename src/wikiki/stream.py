@@ -1,5 +1,7 @@
 import json
 import os
+import sys
+import time
 from typing import Iterator
 
 import requests
@@ -44,3 +46,17 @@ class SSEStreamClient:
                     yield parse_event(event.data)
         finally:
             response.close()
+
+
+def stream_with_reconnect(
+    client: SSEStreamClient,
+    retry_delay: float = 5.0,
+) -> Iterator[dict]:
+    """Yield SSE events, automatically reconnecting on network errors."""
+    while True:
+        try:
+            yield from client.stream_events()
+        except (requests.RequestException, OSError) as e:
+            print(f"Stream disconnected ({e}), reconnecting in {retry_delay}s...",
+                  file=sys.stderr, flush=True)
+            time.sleep(retry_delay)
