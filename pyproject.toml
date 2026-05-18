@@ -1,0 +1,34 @@
+[project]
+name = "wikiki"
+version = "0.1.0"
+description = "WikiKI - Wikimedia stream analyzer"
+requires-python = ">=3.11"
+dependencies = [
+    "sseclient-py>=1.8.0",
+    "requests>=2.31.0",
+    "xgboost>=2.0.0",
+    "faiss-cpu>=1.7.4",
+    "streamlit>=1.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wikiki"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "integration: requires live network access to Wikimedia",
+    "docker: requires Docker daemon",
+]
