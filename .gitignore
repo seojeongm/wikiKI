@@ -15,7 +15,7 @@ env/
 
 # uv
 .uv/
-uv.lock
+# uv.lock is intentionally tracked for reproducible installs
 
 # pytest
 .pytest_cache/

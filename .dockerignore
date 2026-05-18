@@ -10,3 +10,14 @@ docs/
 .dockerignore
 requirements-dev.txt
 .venv
+
+# Secrets
+.env
+.env.*
+.env.local
+.env.production
+*.pem
+*.key
+id_rsa
+.secrets/
+.aws/
