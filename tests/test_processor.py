@@ -1,8 +1,5 @@
 """TDD: Tests for async stream processing with asyncio."""
 import pytest
-from unittest.mock import Mock
-
-from wikiki.stream import SSEStreamClient
 from wikiki.processor import async_stream_processor
 
 
@@ -13,13 +10,11 @@ async def test_handler_called_for_each_event():
     async def handler(event):
         received.append(event)
 
-    mock_client = Mock(spec=SSEStreamClient)
-    mock_client.stream_events.return_value = iter([
-        {"type": "edit", "title": "Alpha"},
-        {"type": "new", "title": "Beta"},
-    ])
-
-    await async_stream_processor(mock_client, handler, max_events=2)
+    await async_stream_processor(
+        iter([{"type": "edit", "title": "Alpha"}, {"type": "new", "title": "Beta"}]),
+        handler,
+        max_events=2,
+    )
 
     assert len(received) == 2
     assert received[0]["title"] == "Alpha"
@@ -39,10 +34,7 @@ async def test_max_events_limits_processing():
             yield {"type": "edit", "seq": i}
             i += 1
 
-    mock_client = Mock(spec=SSEStreamClient)
-    mock_client.stream_events.return_value = endless()
-
-    await async_stream_processor(mock_client, handler, max_events=5)
+    await async_stream_processor(endless(), handler, max_events=5)
 
     assert len(received) == 5
 
@@ -54,17 +46,27 @@ async def test_sync_handler_is_supported():
     def sync_handler(event):
         received.append(event)
 
-    mock_client = Mock(spec=SSEStreamClient)
-    mock_client.stream_events.return_value = iter([{"type": "edit"}])
-
-    await async_stream_processor(mock_client, sync_handler, max_events=1)
+    await async_stream_processor(iter([{"type": "edit"}]), sync_handler, max_events=1)
 
     assert len(received) == 1
 
 
 @pytest.mark.asyncio
 async def test_empty_stream_completes_without_error():
-    mock_client = Mock(spec=SSEStreamClient)
-    mock_client.stream_events.return_value = iter([])
+    await async_stream_processor(iter([]), lambda e: None)
 
-    await async_stream_processor(mock_client, lambda e: None)
+
+@pytest.mark.asyncio
+async def test_max_events_zero_processes_nothing():
+    received = []
+
+    async def handler(event):
+        received.append(event)
+
+    await async_stream_processor(
+        iter([{"type": "edit"}, {"type": "edit"}]),
+        handler,
+        max_events=0,
+    )
+
+    assert len(received) == 0

@@ -2,11 +2,14 @@ import asyncio
 import json
 import os
 import sys
+from dataclasses import asdict
 
 sys.stdout.reconfigure(encoding="utf-8")
 
+from wikiki.parser import is_enwiki_edit, parse_edit_event
 from wikiki.processor import async_stream_processor
-from wikiki.stream import SSEStreamClient
+from wikiki.storage import connect, save_event
+from wikiki.stream import SSEStreamClient, stream_with_reconnect
 
 
 async def main() -> None:
@@ -21,13 +24,26 @@ async def main() -> None:
     else:
         max_events = None
 
+    db = connect(os.getenv("DB_PATH", "wikiki.db"))
     client = SSEStreamClient()
     print("Connecting to Wikimedia SSE stream...", file=sys.stderr, flush=True)
 
-    async def handle(event: dict) -> None:
-        print(json.dumps(event, ensure_ascii=False), flush=True)
+    enwiki_stream = (e for e in stream_with_reconnect(client) if is_enwiki_edit(e))
 
-    await async_stream_processor(client, handle, max_events=max_events)
+    async def handle(event: dict) -> None:
+        try:
+            edit = parse_edit_event(event)
+        except Exception as e:
+            print(f"Failed to parse event: {e} | {event}", file=sys.stderr, flush=True)
+            return
+        await asyncio.to_thread(save_event, db, edit)
+        print(json.dumps(asdict(edit), ensure_ascii=False), flush=True)
+
+    await async_stream_processor(
+        enwiki_stream,
+        handle,
+        max_events=max_events,
+    )
     print("Stream finished.", file=sys.stderr, flush=True)
 
 
