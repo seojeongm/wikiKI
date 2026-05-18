@@ -31,8 +31,12 @@ async def main() -> None:
     enwiki_stream = (e for e in stream_with_reconnect(client) if is_enwiki_edit(e))
 
     async def handle(event: dict) -> None:
-        edit = parse_edit_event(event)
-        save_event(db, edit)
+        try:
+            edit = parse_edit_event(event)
+        except Exception as e:
+            print(f"Failed to parse event: {e} | {event}", file=sys.stderr, flush=True)
+            return
+        await asyncio.to_thread(save_event, db, edit)
         print(json.dumps(asdict(edit), ensure_ascii=False), flush=True)
 
     await async_stream_processor(
