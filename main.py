@@ -11,7 +11,15 @@ from wikiki.stream import SSEStreamClient
 
 async def main() -> None:
     max_events_env = os.getenv("MAX_EVENTS")
-    max_events = int(max_events_env) if max_events_env else None
+    if max_events_env is not None:
+        try:
+            max_events = int(max_events_env)
+        except ValueError:
+            raise SystemExit(f"Invalid MAX_EVENTS={max_events_env!r}: must be a positive integer")
+        if max_events <= 0:
+            raise SystemExit(f"Invalid MAX_EVENTS={max_events_env!r}: must be a positive integer, got {max_events}")
+    else:
+        max_events = None
 
     client = SSEStreamClient()
     print("Connecting to Wikimedia SSE stream...", file=sys.stderr, flush=True)

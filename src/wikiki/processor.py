@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from typing import Callable, Optional
 
 from .stream import SSEStreamClient
@@ -26,6 +27,9 @@ async def async_stream_processor(
 
     count = 0
     while True:
+        if max_events is not None and count >= max_events:
+            break
+
         event = await loop.run_in_executor(None, _next)
         if event is _DONE:
             break
@@ -33,8 +37,8 @@ async def async_stream_processor(
         if asyncio.iscoroutinefunction(handler):
             await handler(event)
         else:
-            await loop.run_in_executor(None, handler, event)
+            result = await loop.run_in_executor(None, handler, event)
+            if inspect.isawaitable(result):
+                await result
 
         count += 1
-        if max_events is not None and count >= max_events:
-            break

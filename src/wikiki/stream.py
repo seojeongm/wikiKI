@@ -36,6 +36,9 @@ class SSEStreamClient:
         )
         response.raise_for_status()
         client = sseclient.SSEClient(response)
-        for event in client.events():
-            if event.data:
-                yield parse_event(event.data)
+        try:
+            for event in client.events():
+                if event.data:
+                    yield parse_event(event.data)
+        finally:
+            response.close()
