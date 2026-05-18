@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Iterator
 
 import requests
@@ -7,7 +8,8 @@ import sseclient
 WIKIMEDIA_SSE_URL = "https://stream.wikimedia.org/v2/stream/recentchange"
 
 # Wikimedia policy requires a descriptive User-Agent (https://meta.wikimedia.org/wiki/User-Agent_policy)
-_USER_AGENT = "WikiKI/0.1.0 (https://github.com/seojeongm/wikiki; aboutime.seojeong@gmail.com) python-requests"
+_CONTACT = os.getenv("WIKIKI_CONTACT", "https://github.com/seojeongm/wikiki")
+_USER_AGENT = f"WikiKI/0.1.0 ({_CONTACT}) python-requests"
 
 
 def parse_event(data: str) -> dict:
