@@ -62,3 +62,21 @@ class VelocitySpikeStrategy:
         if prior + 1 >= self.threshold:
             return Flag(type="VELOCITY_SPIKE", title=event.title, weight=0.6)
         return None
+
+
+class EditorConflictStrategy:
+    def __init__(self, window_seconds: int = 3600, min_editors: int = 3) -> None:
+        self.window_seconds = window_seconds
+        self.min_editors = min_editors
+
+    def evaluate(self, event: EditEvent, history: list[EditEvent]) -> Flag | None:
+        cutoff = event.timestamp - self.window_seconds
+        editors = {
+            e.user for e in history
+            if e.title == event.title and e.timestamp >= cutoff
+        }
+        editors.add(event.user)
+
+        if len(editors) >= self.min_editors:
+            return Flag(type="EDITOR_CONFLICT", title=event.title, weight=0.5)
+        return None

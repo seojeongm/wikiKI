@@ -1,7 +1,7 @@
 """TDD: Tests for detection strategies."""
 import pytest
 from wikiki.models import EditEvent
-from wikiki.rules import Flag, ThreeRRStrategy, VelocitySpikeStrategy
+from wikiki.rules import Flag, ThreeRRStrategy, VelocitySpikeStrategy, EditorConflictStrategy
 
 
 def make_edit(title="Alpha", user="alice", timestamp=1000, comment=""):
@@ -128,4 +128,56 @@ def test_velocity_edits_outside_window_not_counted():
 def test_velocity_flag_has_positive_weight():
     history = [make_edit(timestamp=i * 100) for i in range(4)]
     flag = VELOCITY.evaluate(make_edit(timestamp=1000), history=history)
+    assert flag.weight > 0
+
+
+# --- EditorConflictStrategy ---
+
+CONFLICT = EditorConflictStrategy(window_seconds=3600, min_editors=3)
+
+
+def test_conflict_no_flag_below_threshold():
+    history = [make_edit(user="bob", timestamp=500)]
+    assert CONFLICT.evaluate(make_edit(user="alice", timestamp=1000), history=history) is None
+
+
+def test_conflict_flag_at_threshold():
+    # alice + bob in history, carol is current = 3 distinct editors
+    history = [make_edit(user="alice", timestamp=500), make_edit(user="bob", timestamp=700)]
+    flag = CONFLICT.evaluate(make_edit(user="carol", timestamp=1000), history=history)
+    assert flag is not None
+    assert flag.type == "EDITOR_CONFLICT"
+    assert flag.title == "Alpha"
+
+
+def test_conflict_same_user_multiple_edits_counts_once():
+    # bob edited twice, alice is current — only 2 distinct editors
+    history = [make_edit(user="bob", timestamp=400), make_edit(user="bob", timestamp=600)]
+    assert CONFLICT.evaluate(make_edit(user="alice", timestamp=1000), history=history) is None
+
+
+def test_conflict_current_user_already_in_history_not_double_counted():
+    # alice in history + bob in history + alice again as current = 2 distinct editors
+    history = [make_edit(user="alice", timestamp=400), make_edit(user="bob", timestamp=600)]
+    assert CONFLICT.evaluate(make_edit(user="alice", timestamp=1000), history=history) is None
+
+
+def test_conflict_edits_on_different_article_not_counted():
+    history = [make_edit(user="bob", title="Beta", timestamp=500),
+               make_edit(user="carol", title="Beta", timestamp=700)]
+    assert CONFLICT.evaluate(make_edit(user="alice", title="Alpha", timestamp=1000), history=history) is None
+
+
+def test_conflict_edits_outside_window_not_counted():
+    window = 3600
+    strategy = EditorConflictStrategy(window_seconds=window, min_editors=3)
+    base = 10000
+    history = [make_edit(user="bob", timestamp=base - window - 1),
+               make_edit(user="carol", timestamp=base - window - 2)]
+    assert strategy.evaluate(make_edit(user="alice", timestamp=base), history=history) is None
+
+
+def test_conflict_flag_has_positive_weight():
+    history = [make_edit(user="alice", timestamp=500), make_edit(user="bob", timestamp=700)]
+    flag = CONFLICT.evaluate(make_edit(user="carol", timestamp=1000), history=history)
     assert flag.weight > 0
