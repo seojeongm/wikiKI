@@ -38,7 +38,7 @@ class ThreeRRStrategy:
             1 for e in history
             if e.user == event.user
             and e.title == event.title
-            and e.timestamp >= cutoff
+            and cutoff <= e.timestamp <= event.timestamp
             and _is_revert(e)
         )
 
@@ -56,7 +56,7 @@ class VelocitySpikeStrategy:
         cutoff = event.timestamp - self.window_seconds
         prior = sum(
             1 for e in history
-            if e.title == event.title and e.timestamp >= cutoff
+            if e.title == event.title and cutoff <= e.timestamp <= event.timestamp
         )
 
         if prior + 1 >= self.threshold:
@@ -73,7 +73,7 @@ class EditorConflictStrategy:
         cutoff = event.timestamp - self.window_seconds
         editors = {
             e.user for e in history
-            if e.title == event.title and e.timestamp >= cutoff
+            if e.title == event.title and cutoff <= e.timestamp <= event.timestamp
         }
         editors.add(event.user)
 
