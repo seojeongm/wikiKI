@@ -1,7 +1,7 @@
 """TDD: Tests for detection strategies."""
 import pytest
 from wikiki.models import EditEvent
-from wikiki.rules import Flag, ThreeRRStrategy, VelocitySpikeStrategy, EditorConflictStrategy
+from wikiki.rules import Flag, ThreeRRStrategy, VelocitySpikeStrategy, EditorConflictStrategy, RuleEngine
 
 
 def make_edit(title="Alpha", user="alice", timestamp=1000, comment=""):
@@ -181,3 +181,39 @@ def test_conflict_flag_has_positive_weight():
     history = [make_edit(user="alice", timestamp=500), make_edit(user="bob", timestamp=700)]
     flag = CONFLICT.evaluate(make_edit(user="carol", timestamp=1000), history=history)
     assert flag.weight > 0
+
+
+# --- RuleEngine ---
+
+def test_engine_returns_empty_list_with_no_strategies():
+    engine = RuleEngine()
+    assert engine.evaluate(make_edit(), history=[]) == []
+
+
+def test_engine_returns_flag_from_single_strategy():
+    engine = RuleEngine()
+    engine.add_strategy(ThreeRRStrategy(window_seconds=86400))
+    history = [revert(timestamp=500), revert(timestamp=750)]
+    flags = engine.evaluate(revert(timestamp=1000), history=history)
+    assert len(flags) == 1
+    assert flags[0].type == "3RR"
+
+
+def test_engine_collects_flags_from_multiple_strategies():
+    engine = RuleEngine()
+    engine.add_strategy(ThreeRRStrategy(window_seconds=86400))
+    engine.add_strategy(VelocitySpikeStrategy(window_seconds=3600, threshold=3))
+    # trigger both: 2 reverts in history (3RR) + 2 edits in history (velocity)
+    history = [revert(timestamp=500), revert(timestamp=750)]
+    flags = engine.evaluate(revert(timestamp=1000), history=history)
+    assert len(flags) == 2
+
+
+def test_engine_skips_strategies_that_return_none():
+    engine = RuleEngine()
+    engine.add_strategy(ThreeRRStrategy(window_seconds=86400))
+    engine.add_strategy(VelocitySpikeStrategy(window_seconds=3600, threshold=100))
+    history = [revert(timestamp=500), revert(timestamp=750)]
+    flags = engine.evaluate(revert(timestamp=1000), history=history)
+    assert len(flags) == 1
+    assert flags[0].type == "3RR"

@@ -80,3 +80,17 @@ class EditorConflictStrategy:
         if len(editors) >= self.min_editors:
             return Flag(type="EDITOR_CONFLICT", title=event.title, weight=0.5)
         return None
+
+
+class RuleEngine:
+    def __init__(self) -> None:
+        self.strategies: list[Strategy] = []
+
+    def add_strategy(self, strategy: Strategy) -> None:
+        self.strategies.append(strategy)
+
+    def evaluate(self, event: EditEvent, history: list[EditEvent]) -> list[Flag]:
+        return [
+            flag for strategy in self.strategies
+            if (flag := strategy.evaluate(event, history)) is not None
+        ]
