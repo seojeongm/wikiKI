@@ -1,6 +1,7 @@
 from .models import EditEvent
 from .parser import is_enwiki_edit, parse_edit_event
 from .processor import async_stream_processor
+from .rules import EditorConflictStrategy, Flag, RuleEngine, Strategy, ThreeRRStrategy, VelocitySpikeStrategy
 from .storage import connect, save_event
 from .stream import SSEStreamClient, parse_event, stream_with_reconnect
 
@@ -9,6 +10,12 @@ __all__ = [
     "is_enwiki_edit",
     "parse_edit_event",
     "async_stream_processor",
+    "EditorConflictStrategy",
+    "Flag",
+    "RuleEngine",
+    "Strategy",
+    "ThreeRRStrategy",
+    "VelocitySpikeStrategy",
     "connect",
     "save_event",
     "SSEStreamClient",
