@@ -46,11 +46,6 @@ classDiagram
         +evaluate(event: EditEvent) Flag
     }
 
-    class NewAccountStrategy {
-        -Number accountAgeDays
-        +evaluate(event: EditEvent) Flag
-    }
-
     class Flag {
         +String type
         +String title
@@ -103,7 +98,6 @@ classDiagram
     Strategy <|.. ThreeRRStrategy : implements
     Strategy <|.. VelocitySpikeStrategy : implements
     Strategy <|.. EditorConflictStrategy : implements
-    Strategy <|.. NewAccountStrategy : implements
     RuleEngine ..> Flag : produces
     TensionScorer ..> ArticleStats : produces
     Dashboard --> ArticleRepository : reads
