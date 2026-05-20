@@ -27,3 +27,25 @@ def test_calculate_clamped_to_100():
 
 def test_calculate_returns_float():
     assert isinstance(scorer.calculate([make_flag(0.5)]), float)
+
+
+# --- to_status ---
+
+def test_status_calm():
+    assert scorer.to_status(0.0) == "calm"
+    assert scorer.to_status(24.9) == "calm"
+
+
+def test_status_elevated():
+    assert scorer.to_status(25.0) == "elevated"
+    assert scorer.to_status(49.9) == "elevated"
+
+
+def test_status_tense():
+    assert scorer.to_status(50.0) == "tense"
+    assert scorer.to_status(74.9) == "tense"
+
+
+def test_status_critical():
+    assert scorer.to_status(75.0) == "critical"
+    assert scorer.to_status(100.0) == "critical"
