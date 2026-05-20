@@ -1,7 +1,7 @@
-"""TDD: Tests for ThreeRRStrategy."""
+"""TDD: Tests for detection strategies."""
 import pytest
 from wikiki.models import EditEvent
-from wikiki.rules import Flag, ThreeRRStrategy
+from wikiki.rules import Flag, ThreeRRStrategy, VelocitySpikeStrategy
 
 
 def make_edit(title="Alpha", user="alice", timestamp=1000, comment=""):
@@ -81,3 +81,51 @@ def test_flag_on_fourth_revert_also_fires():
     history = [revert(timestamp=500), revert(timestamp=750), revert(timestamp=900)]
     flag = STRATEGY.evaluate(revert(timestamp=1000), history=history)
     assert flag is not None
+
+
+# --- VelocitySpikeStrategy ---
+
+VELOCITY = VelocitySpikeStrategy(window_seconds=3600, threshold=5)
+
+
+def test_velocity_no_flag_below_threshold():
+    history = [make_edit(timestamp=i * 100) for i in range(3)]
+    assert VELOCITY.evaluate(make_edit(timestamp=1000), history=history) is None
+
+
+def test_velocity_flag_at_threshold():
+    # 4 in history + 1 current = 5 = threshold
+    history = [make_edit(timestamp=i * 100) for i in range(4)]
+    flag = VELOCITY.evaluate(make_edit(timestamp=1000), history=history)
+    assert flag is not None
+    assert flag.type == "VELOCITY_SPIKE"
+    assert flag.title == "Alpha"
+
+
+def test_velocity_flag_above_threshold():
+    history = [make_edit(timestamp=i * 100) for i in range(10)]
+    assert VELOCITY.evaluate(make_edit(timestamp=1000), history=history) is not None
+
+
+def test_velocity_no_flag_for_single_edit():
+    assert VELOCITY.evaluate(make_edit(timestamp=1000), history=[]) is None
+
+
+def test_velocity_edits_on_different_article_not_counted():
+    history = [make_edit(title="Beta", timestamp=i * 100) for i in range(4)]
+    assert VELOCITY.evaluate(make_edit(title="Alpha", timestamp=1000), history=history) is None
+
+
+def test_velocity_edits_outside_window_not_counted():
+    window = 3600
+    strategy = VelocitySpikeStrategy(window_seconds=window, threshold=3)
+    base = 10000
+    # all history edits are before the cutoff
+    history = [make_edit(timestamp=base - window - i) for i in range(10)]
+    assert strategy.evaluate(make_edit(timestamp=base), history=history) is None
+
+
+def test_velocity_flag_has_positive_weight():
+    history = [make_edit(timestamp=i * 100) for i in range(4)]
+    flag = VELOCITY.evaluate(make_edit(timestamp=1000), history=history)
+    assert flag.weight > 0

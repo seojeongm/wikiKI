@@ -45,3 +45,20 @@ class ThreeRRStrategy:
         if prior_reverts + 1 >= self.min_reverts:
             return Flag(type="3RR", title=event.title, weight=0.8)
         return None
+
+
+class VelocitySpikeStrategy:
+    def __init__(self, window_seconds: int = 3600, threshold: int = 10) -> None:
+        self.window_seconds = window_seconds
+        self.threshold = threshold
+
+    def evaluate(self, event: EditEvent, history: list[EditEvent]) -> Flag | None:
+        cutoff = event.timestamp - self.window_seconds
+        prior = sum(
+            1 for e in history
+            if e.title == event.title and e.timestamp >= cutoff
+        )
+
+        if prior + 1 >= self.threshold:
+            return Flag(type="VELOCITY_SPIKE", title=event.title, weight=0.6)
+        return None
