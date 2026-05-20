@@ -38,6 +38,9 @@ build/
 .DS_Store
 Thumbs.db
 
+# Database
+*.db
+
 # Docker
 *.tar
 
