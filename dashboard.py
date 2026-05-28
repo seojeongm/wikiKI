@@ -155,7 +155,7 @@ def render() -> None:
         "flagged_now": len(flagged),
         "three_rr_breaches_today": len(three_rr),
         "avg_edit_velocity": round(avg_velocity, 1),
-        "edits_tracked_today": sum(int(a.edit_velocity) for a in articles),
+        "edits_this_hour": sum(int(a.edit_velocity) for a in articles),
     }
 
     st.set_page_config(page_title="wikiKI", layout="wide", page_icon="📡")
@@ -185,8 +185,8 @@ def render() -> None:
             <span style="color:{t['color_live']};font-weight:700;">● live</span>
             &nbsp;• enwiki &nbsp;•&nbsp;
             <strong style="color:{t['text_primary']};">
-              {live_stats["edits_tracked_today"]:,}
-            </strong> edits tracked today
+              {live_stats["edits_this_hour"]:,}
+            </strong> edits this hour
           </span>
         </div>""",
         unsafe_allow_html=True,
