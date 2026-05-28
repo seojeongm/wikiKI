@@ -1,4 +1,5 @@
 import sqlite3
+import time
 
 from .models import EditEvent
 
@@ -40,3 +41,38 @@ def save_event(conn: sqlite3.Connection, event: EditEvent) -> None:
         event.revision_old, event.revision_new,
     ))
     conn.commit()
+
+
+def _row_to_event(row: tuple) -> EditEvent:
+    return EditEvent(
+        title=row[0], user=row[1], bot=bool(row[2]), timestamp=row[3],
+        comment=row[4], length_old=row[5], length_new=row[6],
+        revision_old=row[7], revision_new=row[8],
+    )
+
+
+def find_by_title(
+    conn: sqlite3.Connection,
+    title: str,
+    window_seconds: int,
+    now: int | None = None,
+) -> list[EditEvent]:
+    cutoff = (now if now is not None else int(time.time())) - window_seconds
+    rows = conn.execute(
+        "SELECT title, user, bot, timestamp, comment, "
+        "length_old, length_new, revision_old, revision_new "
+        "FROM edit_events WHERE title = ? AND timestamp >= ? "
+        "ORDER BY timestamp ASC",
+        (title, cutoff),
+    ).fetchall()
+    return [_row_to_event(r) for r in rows]
+
+
+def find_recent(conn: sqlite3.Connection, limit: int) -> list[EditEvent]:
+    rows = conn.execute(
+        "SELECT title, user, bot, timestamp, comment, "
+        "length_old, length_new, revision_old, revision_new "
+        "FROM edit_events ORDER BY timestamp DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [_row_to_event(r) for r in rows]
