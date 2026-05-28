@@ -1,5 +1,5 @@
-from .coordinator import ArticleStats, Coordinator
-from .models import EditEvent
+from .coordinator import Coordinator
+from .models import ArticleStats, EditEvent
 from .parser import is_enwiki_edit, parse_edit_event
 from .processor import async_stream_processor
 from .rules import EditorConflictStrategy, Flag, RuleEngine, Strategy, ThreeRRStrategy, VelocitySpikeStrategy

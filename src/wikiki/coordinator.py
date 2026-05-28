@@ -1,21 +1,10 @@
 import sqlite3
-from dataclasses import dataclass
 from typing import Protocol
 
-from .models import EditEvent
+from .models import ArticleStats, EditEvent
 from .rules import RuleEngine
 from .scorer import TensionScorer
 from .storage import find_by_title, save_event
-
-
-@dataclass
-class ArticleStats:
-    title: str
-    editor_count: int
-    revert_count: int
-    edit_velocity: int
-    tension_score: float
-    status: str
 
 
 class Dashboard(Protocol):
