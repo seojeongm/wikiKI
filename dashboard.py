@@ -124,9 +124,7 @@ def _article_card(article: ArticleStats) -> str:
                 font-weight:600;margin-bottom:10px;line-height:1.4;">
       {title}
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:{t['gap_chips']};margin-bottom:10px;">
-      {chips}
-    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:{t['gap_chips']};margin-bottom:10px;">{chips}</div>  
     <div style="color:{t['text_muted']};font-size:{t['fs_meta']};">{meta}</div>
   </div>
   <div style="text-align:right;flex-shrink:0;">
