@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -19,6 +19,8 @@ class ArticleStats:
     title: str
     editor_count: int
     revert_count: int
-    edit_velocity: int
+    edit_velocity: float
     tension_score: float
     status: str
+    flags: list[str] = field(default_factory=list)
+    last_edit_min: int = 0
