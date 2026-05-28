@@ -33,15 +33,15 @@ TOKENS: dict[str, str] = {
     "flag_blp":        "#60a5fa",
     "flag_blp_editor": "#22d3ee",
     # typography
-    "fs_logo":       "22px",
-    "fs_header":     "13px",
+    "fs_logo":       "28px",
+    "fs_header":     "16px",
     "fs_card_title": "28px",
     "fs_chip":       "16px",
     "fs_meta":       "16px",
     "fs_score":      "42px",
     "fs_score_label":"16px",
     "fs_status":     "16px",
-    "fs_section":    "11px",
+    "fs_section":    "12px",
     # layout
     "r_card":        "10px",
     "r_chip":        "9999px",
