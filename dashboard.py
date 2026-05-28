@@ -9,7 +9,7 @@ import streamlit as st
 from wikiki.models import ArticleStats
 from wikiki.storage import connect, get_all_stats
 
-REFRESH_INTERVAL = 30
+REFRESH_INTERVAL = 5
 
 # --- Design tokens ---
 TOKENS: dict[str, str] = {

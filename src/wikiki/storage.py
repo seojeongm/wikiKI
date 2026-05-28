@@ -103,7 +103,7 @@ def get_all_stats(conn: sqlite3.Connection) -> list[ArticleStats]:
     rows = conn.execute(
         "SELECT title, editor_count, revert_count, edit_velocity, "
         "tension_score, status, flags, last_seen_at "
-        "FROM article_stats ORDER BY tension_score DESC"
+        "FROM article_stats ORDER BY last_seen_at DESC"
     ).fetchall()
     return [
         ArticleStats(

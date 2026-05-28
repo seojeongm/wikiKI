@@ -39,8 +39,8 @@ async def main() -> None:
 
     engine = RuleEngine()
     engine.add_strategy(ThreeRRStrategy())
-    engine.add_strategy(VelocitySpikeStrategy())
-    engine.add_strategy(EditorConflictStrategy())
+    engine.add_strategy(VelocitySpikeStrategy(window_seconds=3600, threshold=3))
+    engine.add_strategy(EditorConflictStrategy(window_seconds=3600, min_editors=2))
 
     coordinator = Coordinator(
         conn=db,
