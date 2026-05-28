@@ -1,3 +1,4 @@
+from .coordinator import Coordinator
 from .models import ArticleStats, EditEvent
 from .parser import is_enwiki_edit, parse_edit_event
 from .processor import async_stream_processor
@@ -8,6 +9,7 @@ from .stream import SSEStreamClient, parse_event, stream_with_reconnect
 
 __all__ = [
     "ArticleStats",
+    "Coordinator",
     "EditEvent",
     "is_enwiki_edit",
     "parse_edit_event",
