@@ -1,15 +1,26 @@
 import asyncio
-import json
 import os
 import sys
-from dataclasses import asdict
+import time
 
 sys.stdout.reconfigure(encoding="utf-8")
 
+from wikiki.coordinator import Coordinator
+from wikiki.models import ArticleStats
 from wikiki.parser import is_enwiki_edit, parse_edit_event
 from wikiki.processor import async_stream_processor
-from wikiki.storage import connect, save_event
+from wikiki.rules import EditorConflictStrategy, RuleEngine, ThreeRRStrategy, VelocitySpikeStrategy
+from wikiki.scorer import TensionScorer
+from wikiki.storage import connect, upsert_stats
 from wikiki.stream import SSEStreamClient, stream_with_reconnect
+
+
+class DBDashboard:
+    def __init__(self, conn) -> None:
+        self._conn = conn
+
+    def update(self, stats: ArticleStats) -> None:
+        upsert_stats(self._conn, stats, last_seen_at=int(time.time()))
 
 
 async def main() -> None:
@@ -25,6 +36,19 @@ async def main() -> None:
         max_events = None
 
     db = connect(os.getenv("DB_PATH", "wikiki.db"))
+
+    engine = RuleEngine()
+    engine.add_strategy(ThreeRRStrategy())
+    engine.add_strategy(VelocitySpikeStrategy())
+    engine.add_strategy(EditorConflictStrategy())
+
+    coordinator = Coordinator(
+        conn=db,
+        engine=engine,
+        scorer=TensionScorer(),
+        dashboard=DBDashboard(db),
+    )
+
     client = SSEStreamClient()
     print("Connecting to Wikimedia SSE stream...", file=sys.stderr, flush=True)
 
@@ -36,8 +60,8 @@ async def main() -> None:
         except Exception as e:
             print(f"Failed to parse event: {e} | {event}", file=sys.stderr, flush=True)
             return
-        await asyncio.to_thread(save_event, db, edit)
-        print(json.dumps(asdict(edit), ensure_ascii=False), flush=True)
+        stats = await asyncio.to_thread(coordinator.handle, edit)
+        print(f"{stats.title} | score={stats.tension_score:.0f} | {stats.status}", flush=True)
 
     await async_stream_processor(
         enwiki_stream,

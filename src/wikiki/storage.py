@@ -1,7 +1,8 @@
+import json
 import sqlite3
 import time
 
-from .models import EditEvent
+from .models import ArticleStats, EditEvent
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS edit_events (
@@ -18,6 +19,19 @@ CREATE TABLE IF NOT EXISTS edit_events (
 )
 """
 
+_CREATE_STATS_TABLE = """
+CREATE TABLE IF NOT EXISTS article_stats (
+    title         TEXT    PRIMARY KEY,
+    editor_count  INTEGER NOT NULL,
+    revert_count  INTEGER NOT NULL,
+    edit_velocity REAL    NOT NULL,
+    tension_score REAL    NOT NULL,
+    status        TEXT    NOT NULL,
+    flags         TEXT    NOT NULL DEFAULT '[]',
+    last_seen_at  INTEGER NOT NULL DEFAULT 0
+)
+"""
+
 _INSERT = """
 INSERT INTO edit_events
     (title, user, bot, timestamp, comment, length_old, length_new, revision_old, revision_new)
@@ -29,6 +43,7 @@ def connect(db_path: str = "wikiki.db") -> sqlite3.Connection:
     """Open (or create) the SQLite database and ensure the schema exists."""
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute(_CREATE_TABLE)
+    conn.execute(_CREATE_STATS_TABLE)
     conn.commit()
     return conn
 
@@ -66,6 +81,39 @@ def find_by_title(
         (title, cutoff),
     ).fetchall()
     return [_row_to_event(r) for r in rows]
+
+
+def upsert_stats(conn: sqlite3.Connection, stats: ArticleStats, last_seen_at: int) -> None:
+    conn.execute(
+        "INSERT INTO article_stats "
+        "(title, editor_count, revert_count, edit_velocity, tension_score, status, flags, last_seen_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(title) DO UPDATE SET "
+        "editor_count=excluded.editor_count, revert_count=excluded.revert_count, "
+        "edit_velocity=excluded.edit_velocity, tension_score=excluded.tension_score, "
+        "status=excluded.status, flags=excluded.flags, last_seen_at=excluded.last_seen_at",
+        (stats.title, stats.editor_count, stats.revert_count, stats.edit_velocity,
+         stats.tension_score, stats.status, json.dumps(stats.flags), last_seen_at),
+    )
+    conn.commit()
+
+
+def get_all_stats(conn: sqlite3.Connection) -> list[ArticleStats]:
+    now = int(time.time())
+    rows = conn.execute(
+        "SELECT title, editor_count, revert_count, edit_velocity, "
+        "tension_score, status, flags, last_seen_at "
+        "FROM article_stats ORDER BY tension_score DESC"
+    ).fetchall()
+    return [
+        ArticleStats(
+            title=row[0], editor_count=row[1], revert_count=row[2],
+            edit_velocity=row[3], tension_score=row[4], status=row[5],
+            flags=json.loads(row[6]),
+            last_edit_min=max(0, int((now - row[7]) / 60)),
+        )
+        for row in rows
+    ]
 
 
 def find_recent(conn: sqlite3.Connection, limit: int) -> list[EditEvent]:

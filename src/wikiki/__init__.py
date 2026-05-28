@@ -4,7 +4,7 @@ from .parser import is_enwiki_edit, parse_edit_event
 from .processor import async_stream_processor
 from .rules import EditorConflictStrategy, Flag, RuleEngine, Strategy, ThreeRRStrategy, VelocitySpikeStrategy
 from .scorer import TensionScorer
-from .storage import connect, find_by_title, find_recent, save_event
+from .storage import connect, find_by_title, find_recent, get_all_stats, save_event, upsert_stats
 from .stream import SSEStreamClient, parse_event, stream_with_reconnect
 
 __all__ = [
@@ -24,7 +24,9 @@ __all__ = [
     "connect",
     "find_by_title",
     "find_recent",
+    "get_all_stats",
     "save_event",
+    "upsert_stats",
     "SSEStreamClient",
     "parse_event",
     "stream_with_reconnect",
