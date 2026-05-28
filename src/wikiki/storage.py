@@ -69,6 +69,8 @@ def find_by_title(
 
 
 def find_recent(conn: sqlite3.Connection, limit: int) -> list[EditEvent]:
+    if limit < 0:
+        raise ValueError(f"limit must be >= 0, got {limit}")
     rows = conn.execute(
         "SELECT title, user, bot, timestamp, comment, "
         "length_old, length_new, revision_old, revision_new "

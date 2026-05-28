@@ -141,3 +141,7 @@ class TestFindRecent:
 
     def test_empty_when_no_events(self, db):
         assert find_recent(db, limit=10) == []
+
+    def test_negative_limit_raises(self, db):
+        with pytest.raises(ValueError):
+            find_recent(db, limit=-1)
