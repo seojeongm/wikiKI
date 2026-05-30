@@ -43,9 +43,10 @@ class Coordinator:
             title=event.title,
             editor_count=len({e.user for e in all_events}),
             revert_count=sum(1 for e in all_events if _is_revert(e)),
-            edit_velocity=len(all_events),
+            edit_velocity=float(len(all_events)),
             tension_score=score,
             status=self._scorer.to_status(score),
+            flags=[f.type for f in flags],
         )
         self._dashboard.update(stats)
         return stats
