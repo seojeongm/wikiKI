@@ -11,16 +11,17 @@ from wikiki.parser import is_enwiki_edit, parse_edit_event
 from wikiki.processor import async_stream_processor
 from wikiki.rules import EditorConflictStrategy, RuleEngine, ThreeRRStrategy, VelocitySpikeStrategy
 from wikiki.scorer import TensionScorer
-from wikiki.storage import connect, upsert_stats
+import redis as redis_module
+from wikiki.storage import connect, redis_upsert_stats
 from wikiki.stream import SSEStreamClient, stream_with_reconnect
 
 
-class DBDashboard:
-    def __init__(self, conn) -> None:
-        self._conn = conn
+class RedisDashboard:
+    def __init__(self, redis_client: redis_module.Redis) -> None:
+        self._redis = redis_client
 
     def update(self, stats: ArticleStats) -> None:
-        upsert_stats(self._conn, stats, last_seen_at=int(time.time()))
+        redis_upsert_stats(self._redis, stats, last_seen_at=int(time.time()))
 
 
 async def main() -> None:
@@ -36,6 +37,7 @@ async def main() -> None:
         max_events = None
 
     db = connect(os.getenv("DB_PATH", "wikiki.db"))
+    r = redis_module.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
 
     engine = RuleEngine()
     engine.add_strategy(ThreeRRStrategy())
@@ -44,9 +46,10 @@ async def main() -> None:
 
     coordinator = Coordinator(
         conn=db,
+        redis_client=r,
         engine=engine,
         scorer=TensionScorer(),
-        dashboard=DBDashboard(db),
+        dashboard=RedisDashboard(r),
     )
 
     client = SSEStreamClient()

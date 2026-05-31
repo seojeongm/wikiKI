@@ -5,9 +5,10 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
+import redis
 import streamlit as st
 from wikiki.models import ArticleStats
-from wikiki.storage import connect, get_all_stats
+from wikiki.storage import redis_get_all_stats
 
 REFRESH_INTERVAL = 5
 
@@ -142,10 +143,13 @@ def _article_card(article: ArticleStats) -> str:
 """
 
 
+@st.cache_resource
+def _get_redis() -> redis.Redis:
+    return redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+
+
 def render() -> None:
-    db_path = os.getenv("DB_PATH", "wikiki.db")
-    db = connect(db_path)
-    articles = get_all_stats(db)
+    articles = redis_get_all_stats(_get_redis())
 
     flagged = [a for a in articles if a.tension_score > 0]
     three_rr = [a for a in articles if "3RR" in a.flags]
@@ -218,8 +222,10 @@ def render() -> None:
 
     if not articles:
         st.info("No articles tracked yet. Start main.py to begin receiving events.")
+    elif not flagged:
+        st.info("No articles under tension right now.")
     else:
-        for article in articles:
+        for article in flagged:
             st.markdown(_article_card(article), unsafe_allow_html=True)
 
     # --- Auto-refresh ---

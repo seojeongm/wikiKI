@@ -3,3 +3,4 @@ requests>=2.32.2
 xgboost>=2.0.0
 faiss-cpu>=1.7.4
 streamlit>=1.37.0
+redis

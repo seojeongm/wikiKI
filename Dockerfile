@@ -16,6 +16,7 @@ COPY src/ ./src/
 COPY main.py .
 
 RUN useradd --system --no-create-home appuser && chown -R appuser /app
+RUN mkdir -p /data && chown appuser /data
 USER appuser
 
 ENV PYTHONPATH=/app/src

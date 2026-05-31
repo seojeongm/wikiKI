@@ -1,40 +1,43 @@
 import sqlite3
+import redis as redis_module
 from typing import Protocol
 
 from .models import ArticleStats, EditEvent
 from .rules import RuleEngine
 from .scorer import TensionScorer
-from .storage import find_by_title, save_event
+from .storage import (
+    is_revert,
+    redis_find_by_title, redis_save_event,
+)
 
 
 class Dashboard(Protocol):
     def update(self, stats: ArticleStats) -> None: ...
 
 
-def _is_revert(event: EditEvent) -> bool:
-    c = event.comment.lower()
-    return "revert" in c or "undid revision" in c
-
-
 class Coordinator:
     def __init__(
         self,
         conn: sqlite3.Connection,
+        redis_client: redis_module.Redis,
         engine: RuleEngine,
         scorer: TensionScorer,
         dashboard: Dashboard,
         window_seconds: int = 3600,
+        max_size: int = 100,
     ) -> None:
         self._conn = conn
+        self._redis = redis_client
         self._engine = engine
         self._scorer = scorer
         self._dashboard = dashboard
         self._window_seconds = window_seconds
+        self._max_size = max_size
 
     def handle(self, event: EditEvent) -> ArticleStats:
-        history = find_by_title(self._conn, event.title, self._window_seconds,
-                                now=event.timestamp)
-        save_event(self._conn, event)
+        history = redis_find_by_title(self._redis, event.title, self._window_seconds,
+                                      now=event.timestamp)
+
         flags = self._engine.evaluate(event, history)
         score = self._scorer.calculate(flags)
 
@@ -42,11 +45,15 @@ class Coordinator:
         stats = ArticleStats(
             title=event.title,
             editor_count=len({e.user for e in all_events}),
-            revert_count=sum(1 for e in all_events if _is_revert(e)),
+            revert_count=sum(1 for e in all_events if is_revert(e)),
             edit_velocity=float(len(all_events)),
             tension_score=score,
             status=self._scorer.to_status(score),
             flags=[f.type for f in flags],
         )
+
         self._dashboard.update(stats)
+
+        redis_save_event(self._redis, self._conn, event, self._max_size, self._window_seconds)
+
         return stats
