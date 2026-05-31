@@ -114,6 +114,7 @@ def _article_card(article: ArticleStats) -> str:
     )
 
     title = html.escape(article.title)
+    wiki_url = "https://en.wikipedia.org/wiki/" + article.title.replace(" ", "_")
     t = TOKENS
     return f"""
 <div style="background:{t['bg_card']};border:1px solid {t['border']};
@@ -122,7 +123,8 @@ def _article_card(article: ArticleStats) -> str:
   <div style="flex:1;min-width:0;margin-right:24px;">
     <div style="color:{t['text_primary']};font-size:{t['fs_card_title']};
                 font-weight:600;margin-bottom:10px;line-height:1.4;">
-      {title}
+      <a href="{wiki_url}" target="_blank" class="article-link"
+         style="color:{t['text_primary']};text-decoration:none;">{title}</a>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:{t['gap_chips']};margin-bottom:10px;">{chips}</div>  
     <div style="color:{t['text_muted']};font-size:{t['fs_meta']};">{meta}</div>
@@ -155,7 +157,7 @@ def render() -> None:
         "flagged_now": len(flagged),
         "three_rr_breaches_today": len(three_rr),
         "avg_edit_velocity": round(avg_velocity, 1),
-        "edits_tracked_today": sum(int(a.edit_velocity) for a in articles),
+        "edits_this_hour": sum(int(a.edit_velocity) for a in articles),
     }
 
     st.set_page_config(page_title="wikiKI", layout="wide", page_icon="📡")
@@ -170,6 +172,7 @@ def render() -> None:
             border-radius: 10px;
             padding: 16px 20px;
         }
+        a.article-link:hover { text-decoration: underline !important; }
         </style>""",
         unsafe_allow_html=True,
     )
@@ -185,8 +188,8 @@ def render() -> None:
             <span style="color:{t['color_live']};font-weight:700;">● live</span>
             &nbsp;• enwiki &nbsp;•&nbsp;
             <strong style="color:{t['text_primary']};">
-              {live_stats["edits_tracked_today"]:,}
-            </strong> edits tracked today
+              {live_stats["edits_this_hour"]:,}
+            </strong> edits this hour
           </span>
         </div>""",
         unsafe_allow_html=True,
