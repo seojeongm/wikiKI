@@ -44,6 +44,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 def connect(db_path: str = "wikiki.db") -> sqlite3.Connection:
     """Open (or create) the SQLite database and ensure the schema exists."""
     conn = sqlite3.connect(db_path, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute(_CREATE_TABLE)
     conn.execute(_CREATE_STATS_TABLE)
     conn.commit()
