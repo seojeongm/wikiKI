@@ -178,15 +178,12 @@ def accumulate_stats_to_sqlite(
     conn: sqlite3.Connection,
     r: redis.Redis,
     evicted_event: EditEvent,
+    count: int,
 ) -> None:
-    """Accumulate an evicted ring-buffer event into the SQLite article_stats table."""
-    row = conn.execute(
-        "SELECT 1 FROM article_stats WHERE title = ?",
-        (evicted_event.title,),
-    ).fetchone()
-    if row is None:
-        return
+    """Persist an evicted ring-buffer event into SQLite article_stats.
 
+    Accumulates into an existing row. Inserts a new row only when count >= 3.
+    """
     raw = r.hgetall(f"stats:{evicted_event.title}")
     if not raw:
         return
@@ -198,18 +195,33 @@ def accumulate_stats_to_sqlite(
     flags = json.dumps(json.loads(raw[b"flags"].decode()))
     last_seen_at = int(raw[b"last_seen_at"].decode())
 
-    conn.execute(
-        "UPDATE article_stats SET "
-        "edit_velocity = edit_velocity + 1, "
-        "editor_count = ?, "
-        "revert_count = revert_count + ?, "
-        "tension_score = ?, "
-        "status = ?, "
-        "flags = ?, "
-        "last_seen_at = ? "
-        "WHERE title = ?",
-        (editor_count, is_rev, tension_score, status, flags, last_seen_at, evicted_event.title),
-    )
+    row = conn.execute(
+        "SELECT 1 FROM article_stats WHERE title = ?",
+        (evicted_event.title,),
+    ).fetchone()
+
+    if row is None:
+        if count < 3:
+            return
+        conn.execute(
+            "INSERT INTO article_stats "
+            "(title, editor_count, revert_count, edit_velocity, tension_score, status, flags, last_seen_at) "
+            "VALUES (?, ?, ?, 1, ?, ?, ?, ?)",
+            (evicted_event.title, editor_count, is_rev, tension_score, status, flags, last_seen_at),
+        )
+    else:
+        conn.execute(
+            "UPDATE article_stats SET "
+            "edit_velocity = edit_velocity + 1, "
+            "editor_count = ?, "
+            "revert_count = revert_count + ?, "
+            "tension_score = ?, "
+            "status = ?, "
+            "flags = ?, "
+            "last_seen_at = ? "
+            "WHERE title = ?",
+            (editor_count, is_rev, tension_score, status, flags, last_seen_at, evicted_event.title),
+        )
     conn.commit()
 
 
@@ -218,9 +230,18 @@ def redis_save_event(
     conn: sqlite3.Connection,
     event: EditEvent,
     max_size: int = 100,
+    window_seconds: int = 3600,
 ) -> None:
     """Add an EditEvent to the Redis ring buffer, evicting the oldest if needed."""
     key = f"edits:{event.title}"
+    cutoff = event.timestamp - window_seconds
+
+    expired = r.zrangebyscore(key, "-inf", cutoff)
+    count = r.zcard(key) if expired else 0
+    r.zremrangebyscore(key, "-inf", cutoff)
+    for member in expired:
+        accumulate_stats_to_sqlite(conn, r, _decode_event(member), count=count)
+
     r.zadd(key, {_encode_event(event): event.timestamp})
 
     size = r.zcard(key)
@@ -228,8 +249,7 @@ def redis_save_event(
         oldest = r.zrange(key, 0, 0)
         r.zremrangebyrank(key, 0, 0)
         if oldest:
-            evicted_event = _decode_event(oldest[0])
-            accumulate_stats_to_sqlite(conn, r, evicted_event)
+            accumulate_stats_to_sqlite(conn, r, _decode_event(oldest[0]), count=size)
 
 
 def redis_find_by_title(
@@ -286,40 +306,3 @@ def redis_get_all_stats(r: redis.Redis) -> list[ArticleStats]:
         ))
     return result
 
-
-def accumulate_event_to_sqlite(
-    conn: sqlite3.Connection,
-    event: EditEvent,
-    stats: ArticleStats,
-    last_seen_at: int,
-) -> None:
-    is_rev = 1 if is_revert(event) else 0
-    conn.execute(
-        "UPDATE article_stats SET "
-        "edit_velocity = edit_velocity + 1, "
-        "editor_count = ?, "
-        "revert_count = revert_count + ?, "
-        "tension_score = ?, "
-        "status = ?, "
-        "flags = ?, "
-        "last_seen_at = ? "
-        "WHERE title = ?",
-        (stats.editor_count, is_rev, stats.tension_score, stats.status,
-         json.dumps(stats.flags), last_seen_at, event.title),
-    )
-    conn.commit()
-
-
-def flush_title_to_sqlite(
-    r: redis.Redis,
-    conn: sqlite3.Connection,
-    title: str,
-    stats: ArticleStats,
-    last_seen_at: int,
-) -> None:
-    """Flush the Redis ring buffer for *title* and its stats into SQLite."""
-    members = r.zrange(f"edits:{title}", 0, -1)
-    for member in members:
-        event = _decode_event(member)
-        save_event(conn, event)
-    upsert_stats(conn, stats, last_seen_at)

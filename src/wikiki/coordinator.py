@@ -6,9 +6,8 @@ from .models import ArticleStats, EditEvent
 from .rules import RuleEngine
 from .scorer import TensionScorer
 from .storage import (
-    find_by_title, is_revert, save_event,
+    is_revert,
     redis_find_by_title, redis_save_event,
-    flush_title_to_sqlite, accumulate_event_to_sqlite,
 )
 
 
@@ -55,17 +54,6 @@ class Coordinator:
 
         self._dashboard.update(stats)
 
-        redis_save_event(self._redis, self._conn, event, self._max_size)
-
-        count = len(all_events)
-        already_in_sqlite = self._conn.execute(
-            "SELECT 1 FROM article_stats WHERE title = ?", (event.title,)
-        ).fetchone() is not None
-
-        if not already_in_sqlite and count >= 3:
-            flush_title_to_sqlite(self._redis, self._conn, event.title, stats, event.timestamp)
-        elif already_in_sqlite:
-            save_event(self._conn, event)
-            accumulate_event_to_sqlite(self._conn, event, stats, event.timestamp)
+        redis_save_event(self._redis, self._conn, event, self._max_size, self._window_seconds)
 
         return stats
