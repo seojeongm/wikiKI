@@ -141,10 +141,13 @@ def _article_card(article: ArticleStats) -> str:
 """
 
 
+@st.cache_resource
+def _get_redis() -> redis.Redis:
+    return redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+
+
 def render() -> None:
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    r = redis.from_url(redis_url)
-    articles = redis_get_all_stats(r)
+    articles = redis_get_all_stats(_get_redis())
 
     flagged = [a for a in articles if a.tension_score > 0]
     three_rr = [a for a in articles if "3RR" in a.flags]
