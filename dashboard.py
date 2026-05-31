@@ -219,8 +219,10 @@ def render() -> None:
 
     if not articles:
         st.info("No articles tracked yet. Start main.py to begin receiving events.")
+    elif not flagged:
+        st.info("No articles under tension right now.")
     else:
-        for article in articles:
+        for article in flagged:
             st.markdown(_article_card(article), unsafe_allow_html=True)
 
     # --- Auto-refresh ---
