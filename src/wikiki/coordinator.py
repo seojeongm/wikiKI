@@ -6,9 +6,9 @@ from .models import ArticleStats, EditEvent
 from .rules import RuleEngine
 from .scorer import TensionScorer
 from .storage import (
-    find_by_title, is_revert, save_event, upsert_stats,
+    find_by_title, is_revert, save_event,
     redis_find_by_title, redis_save_event,
-    flush_title_to_sqlite,
+    flush_title_to_sqlite, accumulate_event_to_sqlite,
 )
 
 
@@ -66,6 +66,6 @@ class Coordinator:
             flush_title_to_sqlite(self._redis, self._conn, event.title, stats, event.timestamp)
         elif already_in_sqlite:
             save_event(self._conn, event)
-            upsert_stats(self._conn, stats, last_seen_at=event.timestamp)
+            accumulate_event_to_sqlite(self._conn, event, stats, event.timestamp)
 
         return stats

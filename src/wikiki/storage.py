@@ -287,6 +287,29 @@ def redis_get_all_stats(r: redis.Redis) -> list[ArticleStats]:
     return result
 
 
+def accumulate_event_to_sqlite(
+    conn: sqlite3.Connection,
+    event: EditEvent,
+    stats: ArticleStats,
+    last_seen_at: int,
+) -> None:
+    is_rev = 1 if is_revert(event) else 0
+    conn.execute(
+        "UPDATE article_stats SET "
+        "edit_velocity = edit_velocity + 1, "
+        "editor_count = ?, "
+        "revert_count = revert_count + ?, "
+        "tension_score = ?, "
+        "status = ?, "
+        "flags = ?, "
+        "last_seen_at = ? "
+        "WHERE title = ?",
+        (stats.editor_count, is_rev, stats.tension_score, stats.status,
+         json.dumps(stats.flags), last_seen_at, event.title),
+    )
+    conn.commit()
+
+
 def flush_title_to_sqlite(
     r: redis.Redis,
     conn: sqlite3.Connection,
