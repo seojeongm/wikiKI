@@ -9,6 +9,7 @@ dependencies = [
     "xgboost>=2.0.0",
     "faiss-cpu>=1.7.4",
     "streamlit>=1.37.0",
+    "redis>=4.0.0",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,36 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  main:
+    build: .
+    command: python main.py
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DB_PATH=/data/wikiki.db
+    volumes:
+      - wikiki_data:/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - STREAMLIT_THEME_BASE=dark
+      - "STREAMLIT_THEME_BACKGROUND_COLOR=#0e1117"
+      - "STREAMLIT_THEME_SECONDARY_BACKGROUND_COLOR=#1a1d24"
+      - "STREAMLIT_THEME_TEXT_COLOR=#e5e7eb"
+      - "STREAMLIT_THEME_PRIMARY_COLOR=#3b82f6"
+    ports:
+      - "8501:8501"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+volumes:
+  wikiki_data:
