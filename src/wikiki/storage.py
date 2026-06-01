@@ -51,16 +51,6 @@ def connect(db_path: str = "wikiki.db") -> sqlite3.Connection:
     return conn
 
 
-def save_event(conn: sqlite3.Connection, event: EditEvent) -> None:
-    """Persist a single EditEvent to the database."""
-    conn.execute(_INSERT, (
-        event.title, event.user, int(event.bot), event.timestamp,
-        event.comment, event.length_old, event.length_new,
-        event.revision_old, event.revision_new,
-    ))
-    conn.commit()
-
-
 def _row_to_event(row: tuple) -> EditEvent:
     return EditEvent(
         title=row[0], user=row[1], bot=bool(row[2]), timestamp=row[3],
@@ -69,66 +59,130 @@ def _row_to_event(row: tuple) -> EditEvent:
     )
 
 
-def find_by_title(
-    conn: sqlite3.Connection,
-    title: str,
-    window_seconds: int,
-    now: int | None = None,
-) -> list[EditEvent]:
-    cutoff = (now if now is not None else int(time.time())) - window_seconds
-    rows = conn.execute(
-        "SELECT title, user, bot, timestamp, comment, "
-        "length_old, length_new, revision_old, revision_new "
-        "FROM edit_events WHERE title = ? AND timestamp >= ? "
-        "ORDER BY timestamp ASC",
-        (title, cutoff),
-    ).fetchall()
-    return [_row_to_event(r) for r in rows]
+class SQLiteRepository:
+    """Long-term storage of edit events and accumulated article stats.
 
+    Acts as the cold tier behind the Redis hot buffer. Evicted ring-buffer
+    events are folded into ``article_stats`` via :meth:`accumulate_stats`.
+    """
 
-def upsert_stats(conn: sqlite3.Connection, stats: ArticleStats, last_seen_at: int) -> None:
-    conn.execute(
-        "INSERT INTO article_stats "
-        "(title, editor_count, revert_count, edit_velocity, tension_score, status, flags, last_seen_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(title) DO UPDATE SET "
-        "editor_count=excluded.editor_count, revert_count=excluded.revert_count, "
-        "edit_velocity=excluded.edit_velocity, tension_score=excluded.tension_score, "
-        "status=excluded.status, flags=excluded.flags, last_seen_at=excluded.last_seen_at",
-        (stats.title, stats.editor_count, stats.revert_count, stats.edit_velocity,
-         stats.tension_score, stats.status, json.dumps(stats.flags), last_seen_at),
-    )
-    conn.commit()
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
 
+    def save_event(self, event: EditEvent) -> None:
+        """Persist a single EditEvent to the database."""
+        self._conn.execute(_INSERT, (
+            event.title, event.user, int(event.bot), event.timestamp,
+            event.comment, event.length_old, event.length_new,
+            event.revision_old, event.revision_new,
+        ))
+        self._conn.commit()
 
-def get_all_stats(conn: sqlite3.Connection) -> list[ArticleStats]:
-    now = int(time.time())
-    rows = conn.execute(
-        "SELECT title, editor_count, revert_count, edit_velocity, "
-        "tension_score, status, flags, last_seen_at "
-        "FROM article_stats ORDER BY last_seen_at DESC"
-    ).fetchall()
-    return [
-        ArticleStats(
-            title=row[0], editor_count=row[1], revert_count=row[2],
-            edit_velocity=row[3], tension_score=row[4], status=row[5],
-            flags=json.loads(row[6]),
-            last_edit_min=max(0, int((now - row[7]) / 60)),
+    def find_by_title(
+        self,
+        title: str,
+        window_seconds: int,
+        now: int | None = None,
+    ) -> list[EditEvent]:
+        cutoff = (now if now is not None else int(time.time())) - window_seconds
+        rows = self._conn.execute(
+            "SELECT title, user, bot, timestamp, comment, "
+            "length_old, length_new, revision_old, revision_new "
+            "FROM edit_events WHERE title = ? AND timestamp >= ? "
+            "ORDER BY timestamp ASC",
+            (title, cutoff),
+        ).fetchall()
+        return [_row_to_event(r) for r in rows]
+
+    def find_recent(self, limit: int) -> list[EditEvent]:
+        if limit < 0:
+            raise ValueError(f"limit must be >= 0, got {limit}")
+        rows = self._conn.execute(
+            "SELECT title, user, bot, timestamp, comment, "
+            "length_old, length_new, revision_old, revision_new "
+            "FROM edit_events ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [_row_to_event(r) for r in rows]
+
+    def upsert_stats(self, stats: ArticleStats, last_seen_at: int) -> None:
+        self._conn.execute(
+            "INSERT INTO article_stats "
+            "(title, editor_count, revert_count, edit_velocity, tension_score, status, flags, last_seen_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(title) DO UPDATE SET "
+            "editor_count=excluded.editor_count, revert_count=excluded.revert_count, "
+            "edit_velocity=excluded.edit_velocity, tension_score=excluded.tension_score, "
+            "status=excluded.status, flags=excluded.flags, last_seen_at=excluded.last_seen_at",
+            (stats.title, stats.editor_count, stats.revert_count, stats.edit_velocity,
+             stats.tension_score, stats.status, json.dumps(stats.flags), last_seen_at),
         )
-        for row in rows
-    ]
+        self._conn.commit()
 
+    def get_all_stats(self) -> list[ArticleStats]:
+        now = int(time.time())
+        rows = self._conn.execute(
+            "SELECT title, editor_count, revert_count, edit_velocity, "
+            "tension_score, status, flags, last_seen_at "
+            "FROM article_stats ORDER BY last_seen_at DESC"
+        ).fetchall()
+        return [
+            ArticleStats(
+                title=row[0], editor_count=row[1], revert_count=row[2],
+                edit_velocity=row[3], tension_score=row[4], status=row[5],
+                flags=json.loads(row[6]),
+                last_edit_min=max(0, int((now - row[7]) / 60)),
+            )
+            for row in rows
+        ]
 
-def find_recent(conn: sqlite3.Connection, limit: int) -> list[EditEvent]:
-    if limit < 0:
-        raise ValueError(f"limit must be >= 0, got {limit}")
-    rows = conn.execute(
-        "SELECT title, user, bot, timestamp, comment, "
-        "length_old, length_new, revision_old, revision_new "
-        "FROM edit_events ORDER BY timestamp DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
-    return [_row_to_event(r) for r in rows]
+    def accumulate_stats(
+        self,
+        evicted_event: EditEvent,
+        redis_stats: dict,
+        count: int,
+    ) -> None:
+        """Fold an evicted ring-buffer event into ``article_stats``.
+
+        ``redis_stats`` holds the already-decoded hash values (this class
+        never touches Redis itself). Accumulates into an existing row, or
+        inserts a new row only when ``count >= 3``.
+        """
+        is_rev = 1 if is_revert(evicted_event) else 0
+        editor_count = redis_stats["editor_count"]
+        tension_score = redis_stats["tension_score"]
+        status = redis_stats["status"]
+        flags = json.dumps(redis_stats["flags"])
+        last_seen_at = redis_stats["last_seen_at"]
+
+        row = self._conn.execute(
+            "SELECT 1 FROM article_stats WHERE title = ?",
+            (evicted_event.title,),
+        ).fetchone()
+
+        if row is None:
+            if count < 3:
+                return
+            self._conn.execute(
+                "INSERT INTO article_stats "
+                "(title, editor_count, revert_count, edit_velocity, tension_score, status, flags, last_seen_at) "
+                "VALUES (?, ?, ?, 1, ?, ?, ?, ?)",
+                (evicted_event.title, editor_count, is_rev, tension_score, status, flags, last_seen_at),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE article_stats SET "
+                "edit_velocity = edit_velocity + 1, "
+                "editor_count = ?, "
+                "revert_count = revert_count + ?, "
+                "tension_score = ?, "
+                "status = ?, "
+                "flags = ?, "
+                "last_seen_at = ? "
+                "WHERE title = ?",
+                (editor_count, is_rev, tension_score, status, flags, last_seen_at, evicted_event.title),
+            )
+        self._conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -174,135 +228,122 @@ def is_revert(event: EditEvent) -> bool:
     return "revert" in comment_lower or "undid revision" in comment_lower
 
 
-def accumulate_stats_to_sqlite(
-    conn: sqlite3.Connection,
-    r: redis.Redis,
-    evicted_event: EditEvent,
-    count: int,
-) -> None:
-    """Persist an evicted ring-buffer event into SQLite article_stats.
+class RedisRepository:
+    """Hot-tier ring buffer of recent edits plus live article stats.
 
-    Accumulates into an existing row. Inserts a new row only when count >= 3.
+    Recent events live in a per-title sorted set keyed by timestamp; events
+    that fall outside the window or overflow ``max_size`` are evicted and
+    folded into the cold tier via the injected :class:`SQLiteRepository`.
+
+    ``sqlite_repo`` is only consulted when an event is evicted, so read-only
+    consumers (e.g. the dashboard) may construct this with ``sqlite_repo=None``.
     """
-    raw = r.hgetall(f"stats:{evicted_event.title}")
-    if not raw:
-        return
 
-    is_rev = 1 if is_revert(evicted_event) else 0
-    editor_count = int(raw[b"editor_count"].decode())
-    tension_score = float(raw[b"tension_score"].decode())
-    status = raw[b"status"].decode()
-    flags = json.dumps(json.loads(raw[b"flags"].decode()))
-    last_seen_at = int(raw[b"last_seen_at"].decode())
+    def __init__(
+        self,
+        r: redis.Redis,
+        sqlite_repo: SQLiteRepository | None = None,
+    ) -> None:
+        self._redis = r
+        self._sqlite_repo = sqlite_repo
 
-    row = conn.execute(
-        "SELECT 1 FROM article_stats WHERE title = ?",
-        (evicted_event.title,),
-    ).fetchone()
+    def save_event(
+        self,
+        event: EditEvent,
+        max_size: int = 100,
+        window_seconds: int = 3600,
+    ) -> None:
+        """Add an EditEvent to the ring buffer, evicting the oldest if needed."""
+        key = f"edits:{event.title}"
+        cutoff = event.timestamp - window_seconds
 
-    if row is None:
-        if count < 3:
-            return
-        conn.execute(
-            "INSERT INTO article_stats "
-            "(title, editor_count, revert_count, edit_velocity, tension_score, status, flags, last_seen_at) "
-            "VALUES (?, ?, ?, 1, ?, ?, ?, ?)",
-            (evicted_event.title, editor_count, is_rev, tension_score, status, flags, last_seen_at),
-        )
-    else:
-        conn.execute(
-            "UPDATE article_stats SET "
-            "edit_velocity = edit_velocity + 1, "
-            "editor_count = ?, "
-            "revert_count = revert_count + ?, "
-            "tension_score = ?, "
-            "status = ?, "
-            "flags = ?, "
-            "last_seen_at = ? "
-            "WHERE title = ?",
-            (editor_count, is_rev, tension_score, status, flags, last_seen_at, evicted_event.title),
-        )
-    conn.commit()
+        expired = self._redis.zrangebyscore(key, "-inf", cutoff)
+        count = self._redis.zcard(key) if expired else 0
+        self._redis.zremrangebyscore(key, "-inf", cutoff)
+        for member in expired:
+            self._evict_to_sqlite(_decode_event(member), count=count)
 
+        self._redis.zadd(key, {_encode_event(event): event.timestamp})
 
-def redis_save_event(
-    r: redis.Redis,
-    conn: sqlite3.Connection,
-    event: EditEvent,
-    max_size: int = 100,
-    window_seconds: int = 3600,
-) -> None:
-    """Add an EditEvent to the Redis ring buffer, evicting the oldest if needed."""
-    key = f"edits:{event.title}"
-    cutoff = event.timestamp - window_seconds
+        size = self._redis.zcard(key)
+        if size > max_size:
+            oldest = self._redis.zrange(key, 0, 0)
+            self._redis.zremrangebyrank(key, 0, 0)
+            if oldest:
+                self._evict_to_sqlite(_decode_event(oldest[0]), count=size)
 
-    expired = r.zrangebyscore(key, "-inf", cutoff)
-    count = r.zcard(key) if expired else 0
-    r.zremrangebyscore(key, "-inf", cutoff)
-    for member in expired:
-        accumulate_stats_to_sqlite(conn, r, _decode_event(member), count=count)
+    def find_by_title(
+        self,
+        title: str,
+        window_seconds: int,
+        now: int | None = None,
+    ) -> list[EditEvent]:
+        """Return EditEvents for *title* within the given time window."""
+        cutoff = (now if now is not None else int(time.time())) - window_seconds
+        members = self._redis.zrangebyscore(f"edits:{title}", cutoff, "+inf")
+        return [_decode_event(m) for m in members]
 
-    r.zadd(key, {_encode_event(event): event.timestamp})
+    def upsert_stats(self, stats: ArticleStats, last_seen_at: int) -> None:
+        """Write ArticleStats to the hash and update the stats:index set."""
+        self._redis.hset(f"stats:{stats.title}", mapping={
+            "editor_count": str(stats.editor_count),
+            "revert_count": str(stats.revert_count),
+            "edit_velocity": str(stats.edit_velocity),
+            "tension_score": str(stats.tension_score),
+            "status": str(stats.status),
+            "flags": json.dumps(stats.flags),
+            "last_seen_at": str(last_seen_at),
+        })
+        self._redis.zadd("stats:index", {stats.title: last_seen_at})
 
-    size = r.zcard(key)
-    if size > max_size:
-        oldest = r.zrange(key, 0, 0)
-        r.zremrangebyrank(key, 0, 0)
-        if oldest:
-            accumulate_stats_to_sqlite(conn, r, _decode_event(oldest[0]), count=size)
+    def get_all_stats(self) -> list[ArticleStats]:
+        """Return all ArticleStats, ordered by most recently seen."""
+        titles = self._redis.zrevrangebyscore("stats:index", "+inf", "-inf")
+        now = int(time.time())
+        result: list[ArticleStats] = []
+        for title_raw in titles:
+            title = title_raw.decode() if isinstance(title_raw, bytes) else title_raw
+            raw = self._redis.hgetall(f"stats:{title}")
+            if not raw:
+                continue
+            last_seen_at = int(raw[b"last_seen_at"].decode())
+            flags_str = raw[b"flags"].decode()
+            result.append(ArticleStats(
+                title=title,
+                editor_count=int(raw[b"editor_count"].decode()),
+                revert_count=int(raw[b"revert_count"].decode()),
+                edit_velocity=float(raw[b"edit_velocity"].decode()),
+                tension_score=float(raw[b"tension_score"].decode()),
+                status=raw[b"status"].decode(),
+                flags=json.loads(flags_str),
+                last_edit_min=max(0, int((now - last_seen_at) / 60)),
+            ))
+        return result
 
-
-def redis_find_by_title(
-    r: redis.Redis,
-    title: str,
-    window_seconds: int,
-    now: int | None = None,
-) -> list[EditEvent]:
-    """Return EditEvents for *title* within the given time window from Redis."""
-    cutoff = (now if now is not None else int(time.time())) - window_seconds
-    members = r.zrangebyscore(f"edits:{title}", cutoff, "+inf")
-    return [_decode_event(m) for m in members]
-
-
-def redis_upsert_stats(
-    r: redis.Redis,
-    stats: ArticleStats,
-    last_seen_at: int,
-) -> None:
-    """Write ArticleStats to the Redis hash and update the stats:index sorted set."""
-    r.hset(f"stats:{stats.title}", mapping={
-        "editor_count": str(stats.editor_count),
-        "revert_count": str(stats.revert_count),
-        "edit_velocity": str(stats.edit_velocity),
-        "tension_score": str(stats.tension_score),
-        "status": str(stats.status),
-        "flags": json.dumps(stats.flags),
-        "last_seen_at": str(last_seen_at),
-    })
-    r.zadd("stats:index", {stats.title: last_seen_at})
-
-
-def redis_get_all_stats(r: redis.Redis) -> list[ArticleStats]:
-    """Return all ArticleStats from Redis, ordered by most recently seen."""
-    titles = r.zrevrangebyscore("stats:index", "+inf", "-inf")
-    now = int(time.time())
-    result: list[ArticleStats] = []
-    for title_raw in titles:
-        title = title_raw.decode() if isinstance(title_raw, bytes) else title_raw
-        raw = r.hgetall(f"stats:{title}")
+    def _read_stats_hash(self, title: str) -> dict | None:
+        """Read and decode the stats hash for *title*, or None if absent."""
+        raw = self._redis.hgetall(f"stats:{title}")
         if not raw:
-            continue
-        last_seen_at = int(raw[b"last_seen_at"].decode())
-        flags_str = raw[b"flags"].decode()
-        result.append(ArticleStats(
-            title=title,
-            editor_count=int(raw[b"editor_count"].decode()),
-            revert_count=int(raw[b"revert_count"].decode()),
-            edit_velocity=float(raw[b"edit_velocity"].decode()),
-            tension_score=float(raw[b"tension_score"].decode()),
-            status=raw[b"status"].decode(),
-            flags=json.loads(flags_str),
-            last_edit_min=max(0, int((now - last_seen_at) / 60)),
-        ))
-    return result
+            return None
+        return {
+            "editor_count": int(raw[b"editor_count"].decode()),
+            "tension_score": float(raw[b"tension_score"].decode()),
+            "status": raw[b"status"].decode(),
+            "flags": json.loads(raw[b"flags"].decode()),
+            "last_seen_at": int(raw[b"last_seen_at"].decode()),
+        }
+
+    def _evict_to_sqlite(self, evicted_event: EditEvent, count: int) -> None:
+        """Fold an evicted event's stats into the cold tier."""
+        if self._sqlite_repo is None:
+            raise RuntimeError(
+                "RedisRepository requires a SQLiteRepository to evict events; "
+                "this instance was constructed without one (read-only)."
+            )
+        redis_stats = self._read_stats_hash(evicted_event.title)
+        if redis_stats is None:
+            return
+        self._sqlite_repo.accumulate_stats(evicted_event, redis_stats, count)
+
+
 

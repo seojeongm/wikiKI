@@ -1,10 +1,11 @@
 """TDD: Tests for Coordinator."""
+import fakeredis
 import pytest
 from wikiki.coordinator import ArticleStats, Coordinator
 from wikiki.models import EditEvent
 from wikiki.rules import RuleEngine, ThreeRRStrategy
 from wikiki.scorer import TensionScorer
-from wikiki.storage import connect
+from wikiki.storage import RedisRepository, SQLiteRepository, connect
 
 
 class FakeDashboard:
@@ -23,15 +24,21 @@ def db():
 
 
 @pytest.fixture
+def repo(db):
+    r = fakeredis.FakeStrictRedis()
+    return RedisRepository(r, SQLiteRepository(db))
+
+
+@pytest.fixture
 def dashboard():
     return FakeDashboard()
 
 
 @pytest.fixture
-def coordinator(db, dashboard):
+def coordinator(repo, dashboard):
     engine = RuleEngine()
     engine.add_strategy(ThreeRRStrategy(window_seconds=3600))
-    return Coordinator(conn=db, engine=engine, scorer=TensionScorer(),
+    return Coordinator(repo=repo, engine=engine, scorer=TensionScorer(),
                        dashboard=dashboard, window_seconds=3600)
 
 
@@ -47,10 +54,10 @@ def revert(title="Alpha", user="alice", timestamp=1000):
 
 
 class TestHandlePersists:
-    def test_event_is_saved_to_db(self, coordinator, db):
-        coordinator.handle(make_edit(timestamp=1000))
-        count = db.execute("SELECT COUNT(*) FROM edit_events").fetchone()[0]
-        assert count == 1
+    def test_event_is_saved_to_ring_buffer(self, coordinator, repo):
+        coordinator.handle(make_edit(title="Alpha", timestamp=1000))
+        saved = repo.find_by_title("Alpha", window_seconds=3600, now=1000)
+        assert len(saved) == 1
 
 
 class TestHandleReturnsStats:

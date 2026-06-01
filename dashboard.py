@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 import redis
 import streamlit as st
 from wikiki.models import ArticleStats
-from wikiki.storage import redis_get_all_stats
+from wikiki.storage import RedisRepository
 
 REFRESH_INTERVAL = 5
 
@@ -144,12 +144,14 @@ def _article_card(article: ArticleStats) -> str:
 
 
 @st.cache_resource
-def _get_redis() -> redis.Redis:
-    return redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+def _get_repo() -> RedisRepository:
+    # Read-only consumer: no SQLiteRepository needed (never evicts).
+    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+    return RedisRepository(r)
 
 
 def render() -> None:
-    articles = redis_get_all_stats(_get_redis())
+    articles = _get_repo().get_all_stats()
 
     flagged = [a for a in articles if a.tension_score > 0]
     three_rr = [a for a in articles if "3RR" in a.flags]
