@@ -1,14 +1,9 @@
-import sqlite3
-import redis as redis_module
 from typing import Protocol
 
 from .models import ArticleStats, EditEvent
 from .rules import RuleEngine
 from .scorer import TensionScorer
-from .storage import (
-    is_revert,
-    redis_find_by_title, redis_save_event,
-)
+from .storage import RedisRepository, is_revert
 
 
 class Dashboard(Protocol):
@@ -18,16 +13,14 @@ class Dashboard(Protocol):
 class Coordinator:
     def __init__(
         self,
-        conn: sqlite3.Connection,
-        redis_client: redis_module.Redis,
+        repo: RedisRepository,
         engine: RuleEngine,
         scorer: TensionScorer,
         dashboard: Dashboard,
         window_seconds: int = 3600,
         max_size: int = 100,
     ) -> None:
-        self._conn = conn
-        self._redis = redis_client
+        self._repo = repo
         self._engine = engine
         self._scorer = scorer
         self._dashboard = dashboard
@@ -35,8 +28,8 @@ class Coordinator:
         self._max_size = max_size
 
     def handle(self, event: EditEvent) -> ArticleStats:
-        history = redis_find_by_title(self._redis, event.title, self._window_seconds,
-                                      now=event.timestamp)
+        history = self._repo.find_by_title(event.title, self._window_seconds,
+                                           now=event.timestamp)
 
         flags = self._engine.evaluate(event, history)
         score = self._scorer.calculate(flags)
@@ -54,6 +47,6 @@ class Coordinator:
 
         self._dashboard.update(stats)
 
-        redis_save_event(self._redis, self._conn, event, self._max_size, self._window_seconds)
+        self._repo.save_event(event, self._max_size, self._window_seconds)
 
         return stats
