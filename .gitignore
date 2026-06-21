@@ -52,3 +52,6 @@ Thumbs.db
 .env.*
 *.pem
 *.key
+
+# benchmark scratch DB (scripts/bench_evict_lookup.py)
+bench_evict.db*
