@@ -150,3 +150,71 @@ class TestFindRecent:
     def test_negative_limit_raises(self, repo):
         with pytest.raises(ValueError):
             repo.find_recent(limit=-1)
+
+
+def make_redis_stats(**overrides):
+    stats = {
+        "editor_count": 2,
+        "tension_score": 10.0,
+        "status": "calm",
+        "flags": [],
+        "last_seen_at": 1000,
+    }
+    stats.update(overrides)
+    return stats
+
+
+class TestAccumulateStatsBatchCommit:
+    """Batched commits: writes become durable per batch, not per evict."""
+
+    @pytest.fixture
+    def file_db(self, tmp_path):
+        conn = connect(str(tmp_path / "batch.db"))
+        yield conn
+        conn.close()
+
+    @pytest.fixture
+    def reader(self, tmp_path, file_db):
+        conn = connect(str(tmp_path / "batch.db"))
+        yield conn
+        conn.close()
+
+    @staticmethod
+    def committed_count(reader):
+        return reader.execute("SELECT COUNT(*) FROM article_stats").fetchone()[0]
+
+    def test_holds_commit_until_batch_size(self, file_db, reader):
+        repo = SQLiteRepository(file_db, commit_batch=3, max_commit_delay_seconds=9999)
+        for i in range(2):
+            repo.accumulate_stats(make_event(title=f"T{i}"), make_redis_stats(), count=5)
+        assert self.committed_count(reader) == 0
+
+    def test_commits_when_batch_size_reached(self, file_db, reader):
+        repo = SQLiteRepository(file_db, commit_batch=3, max_commit_delay_seconds=9999)
+        for i in range(3):
+            repo.accumulate_stats(make_event(title=f"T{i}"), make_redis_stats(), count=5)
+        assert self.committed_count(reader) == 3
+
+    def test_flush_commits_pending_writes(self, file_db, reader):
+        repo = SQLiteRepository(file_db, commit_batch=100, max_commit_delay_seconds=9999)
+        repo.accumulate_stats(make_event(title="T"), make_redis_stats(), count=5)
+        assert self.committed_count(reader) == 0
+        repo.flush()
+        assert self.committed_count(reader) == 1
+
+    def test_max_delay_forces_commit(self, file_db, reader):
+        repo = SQLiteRepository(file_db, commit_batch=100, max_commit_delay_seconds=0)
+        repo.accumulate_stats(make_event(title="T"), make_redis_stats(), count=5)
+        assert self.committed_count(reader) == 1
+
+    def test_skipped_write_does_not_count_toward_batch(self, file_db, reader):
+        repo = SQLiteRepository(file_db, commit_batch=2, max_commit_delay_seconds=9999)
+        repo.accumulate_stats(make_event(title="Rare"), make_redis_stats(), count=1)
+        repo.accumulate_stats(make_event(title="T"), make_redis_stats(), count=5)
+        assert self.committed_count(reader) == 0
+
+    def test_save_event_flushes_pending_stats(self, file_db, reader):
+        repo = SQLiteRepository(file_db, commit_batch=100, max_commit_delay_seconds=9999)
+        repo.accumulate_stats(make_event(title="T"), make_redis_stats(), count=5)
+        repo.save_event(make_event(title="Other"))
+        assert self.committed_count(reader) == 1

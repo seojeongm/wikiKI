@@ -64,10 +64,31 @@ class SQLiteRepository:
 
     Acts as the cold tier behind the Redis hot buffer. Evicted ring-buffer
     events are folded into ``article_stats`` via :meth:`accumulate_stats`.
+
+    ``accumulate_stats`` batches commits: the dominant per-evict cost is the
+    fsync in ``commit()``, not the SQL itself (see meeting-notes/2026-06-21-1).
+    A crash loses at most ``commit_batch`` pending evictions (or up to
+    ``max_commit_delay_seconds`` worth), which the cold tier tolerates.
+    Call :meth:`flush` on shutdown to persist the remainder.
     """
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(
+        self,
+        conn: sqlite3.Connection,
+        commit_batch: int = 32,
+        max_commit_delay_seconds: float = 5.0,
+    ) -> None:
         self._conn = conn
+        self._commit_batch = commit_batch
+        self._max_commit_delay_seconds = max_commit_delay_seconds
+        self._pending_writes = 0
+        self._first_pending_at: float | None = None
+
+    def flush(self) -> None:
+        """Commit the current transaction, including batched eviction writes."""
+        self._conn.commit()
+        self._pending_writes = 0
+        self._first_pending_at = None
 
     def save_event(self, event: EditEvent) -> None:
         """Persist a single EditEvent to the database."""
@@ -76,7 +97,7 @@ class SQLiteRepository:
             event.comment, event.length_old, event.length_new,
             event.revision_old, event.revision_new,
         ))
-        self._conn.commit()
+        self.flush()
 
     def find_by_title(
         self,
@@ -117,7 +138,7 @@ class SQLiteRepository:
             (stats.title, stats.editor_count, stats.revert_count, stats.edit_velocity,
              stats.tension_score, stats.status, json.dumps(stats.flags), last_seen_at),
         )
-        self._conn.commit()
+        self.flush()
 
     def get_all_stats(self) -> list[ArticleStats]:
         now = int(time.time())
@@ -182,7 +203,16 @@ class SQLiteRepository:
                 "WHERE title = ?",
                 (editor_count, is_rev, tension_score, status, flags, last_seen_at, evicted_event.title),
             )
-        self._conn.commit()
+
+        self._pending_writes += 1
+        now = time.monotonic()
+        if self._first_pending_at is None:
+            self._first_pending_at = now
+        if (
+            self._pending_writes >= self._commit_batch
+            or now - self._first_pending_at >= self._max_commit_delay_seconds
+        ):
+            self.flush()
 
 
 # ---------------------------------------------------------------------------

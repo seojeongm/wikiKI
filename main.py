@@ -38,7 +38,8 @@ async def main() -> None:
 
     db = connect(os.getenv("DB_PATH", "wikiki.db"))
     r = redis_module.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
-    repo = RedisRepository(r, SQLiteRepository(db))
+    sqlite_repo = SQLiteRepository(db)
+    repo = RedisRepository(r, sqlite_repo)
 
     engine = RuleEngine()
     engine.add_strategy(ThreeRRStrategy())
@@ -66,11 +67,14 @@ async def main() -> None:
         stats = await asyncio.to_thread(coordinator.handle, edit)
         print(f"{stats.title} | score={stats.tension_score:.0f} | {stats.status}", flush=True)
 
-    await async_stream_processor(
-        enwiki_stream,
-        handle,
-        max_events=max_events,
-    )
+    try:
+        await async_stream_processor(
+            enwiki_stream,
+            handle,
+            max_events=max_events,
+        )
+    finally:
+        sqlite_repo.flush()
     print("Stream finished.", file=sys.stderr, flush=True)
 
 
